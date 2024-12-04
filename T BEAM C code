@@ -1,0 +1,92 @@
+#include <WiFi.h> // Library to handle Wi-Fi connection
+#include <HTTPClient.h> // Library to handle HTTP requests
+#include "DHT.h" // Library to interact with the DHT sensor for temperature and humidity
+
+// Define the pin and type of the DHT sensor
+#define DHT_PIN 13
+#define DHTTYPE DHT11
+DHT dht(DHT_PIN, DHTTYPE); // Create a DHT object with specified pin and type
+
+// Define pins for other sensors
+#define SOIL_MOISTURE_PIN 36 // Pin for the soil moisture sensor
+#define RAIN_SENSOR_PIN 39 // Pin for the rain sensor
+#define LDR_PIN 35 // Pin for the Light Dependent Resistor (LDR)
+
+// Wi-Fi credentials
+const char* ssid = "Shayan"; // Wi-Fi network name
+const char* password = "shayan123"; // Wi-Fi password
+
+// ThingSpeak server details
+const String server = "http://api.thingspeak.com/update"; // ThingSpeak API endpoint
+String apiKey = "H23JGA8SR3XHAWDF"; // ThingSpeak API key
+
+void setup() {
+  Serial.begin(115200); // Initialize serial communication at 115200 baud rate
+  WiFi.begin(ssid, password); // Begin Wi-Fi connection
+  // Wait until the device is connected to the Wi-Fi
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(1000); // Delay for 1 second before retrying
+  }
+  dht.begin(); // Initialize the DHT sensor
+}
+
+void loop() {
+  // Reconnect to Wi-Fi if disconnected
+  if (WiFi.status() != WL_CONNECTED) {
+    WiFi.begin(ssid, password);
+    while (WiFi.status() != WL_CONNECTED) {
+      delay(1000); // Retry every 1 second
+    }
+  }
+
+  // Read temperature and humidity from the DHT sensor
+  float temperature = dht.readTemperature();
+  float humidity = dht.readHumidity();
+
+  // Read raw analog values from other sensors
+  int soilMoisture = analogRead(SOIL_MOISTURE_PIN); // Soil moisture sensor value
+  int rainSensorValue = analogRead(RAIN_SENSOR_PIN); // Rain sensor value
+  int ldrValue = analogRead(LDR_PIN); // LDR sensor value
+
+  // Check if the DHT sensor returned valid data
+  if (isnan(temperature) || isnan(humidity)) {
+    delay(2000); // Wait for 2 seconds and retry
+    return; // Skip the rest of the loop
+  }
+
+  // Map raw sensor values (0-4095) to percentage (0-100)
+  int soilPercentage = map(soilMoisture, 0, 4095, 0, 100);
+  int rainPercentage = map(rainSensorValue, 0, 4095, 0, 100);
+  int ldrPercentage = map(ldrValue, 0, 4095, 0, 100);
+
+  // Print sensor values to the serial monitor
+  Serial.printf("Temperature: %.2f °C\n", temperature);
+  Serial.printf("Humidity: %.2f %%\n", humidity);
+  Serial.printf("Soil Moisture: %d %%\n", soilPercentage);
+  Serial.printf("Rain Sensor: %d %%\n", rainPercentage);
+  Serial.printf("LDR Sensor: %d %%\n", ldrPercentage);
+
+  // Construct the HTTP GET request URL for ThingSpeak
+  String url = server + "?api_key=" + apiKey +
+               "&field1=" + String(temperature) +
+               "&field2=" + String(humidity) +
+               "&field3=" + String(soilPercentage) +
+               "&field4=" + String(rainPercentage) +
+               "&field5=" + String(ldrPercentage);
+
+  HTTPClient http; // Create an HTTP client
+  http.begin(url); // Initialize the HTTP request with the URL
+  int httpResponseCode = http.GET(); // Send the HTTP GET request
+
+  // Check the HTTP response
+  if (httpResponseCode > 0) { // If the response code is valid
+    if (httpResponseCode == 200) { // If the response is successful
+      Serial.println("Data sent successfully!");
+    }
+  } else { // If the response code is invalid
+    Serial.printf("HTTP Error: %s\n", http.errorToString(httpResponseCode).c_str());
+  }
+
+  http.end(); // End the HTTP request
+  delay(20000); // Wait for 20 seconds before the next loop iteration
+}
